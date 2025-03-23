@@ -71,11 +71,35 @@ def create_termination_check(state_vars: list[ast.AST], tcond: ast.AST) -> ast.I
 
 def create_recursive_call(state_vars: list[ast.AST]) -> ast.Return:
     """Create the recursive function call with updated arguments"""
+    def create_update_expr(node: ast.AugAssign) -> ast.AST:
+        """Create the full update expression from an AugAssign node"""
+        if isinstance(node.op, ast.Mult):
+            return ast.BinOp(
+                left=node.value,
+                op=ast.Mult(),
+                right=node.target
+            )
+        elif isinstance(node.op, ast.Sub):
+            return ast.BinOp(
+                left=node.target,
+                op=ast.Sub(),
+                right=node.value
+            )
+        else:
+            # For other operators, construct similar BinOp nodes
+            return ast.BinOp(
+                left=node.target,
+                op=node.op,
+                right=node.value
+            )
+
     return_node = ast.Return(
         value=ast.Call(
             func=ast.Name(id='loop', ctx=ast.Load()),
             args=[
-                update.value for update in state_vars
+                create_update_expr(state_var) if isinstance(state_var, ast.AugAssign)
+                else state_var.value
+                for state_var in state_vars
             ],
             keywords=[]
         )
@@ -98,14 +122,26 @@ def create_outer_function(node: ast.FunctionDef, state_vars: list[ast.AST], loop
 def create_initial_call(node: ast.FunctionDef, state_vars: list[ast.AST]) -> ast.Return:
     """Create the initial call to the loop function"""
     state_var_names = [var.target.id for var in state_vars]
+    
+    # For factorial example:
+    # state_vars[0] is r (accumulator)
+    # state_vars[1] is n (input)
+    # We want: loop(n, 1) for factorial
+    
+    args = []
+    for i, state_var in enumerate(state_vars):
+        var_name = state_var.target.id
+        if var_name in [arg.arg for arg in node.args.args]:
+            # If it's an input parameter, use it
+            args.append(ast.Name(id=var_name, ctx=ast.Load()))
+        else:
+            # If it's an accumulator, use initial value 1
+            args.append(ast.Constant(value=1))
+    
     return_node = ast.Return(
         value=ast.Call(
             func=ast.Name(id='loop', ctx=ast.Load()),
-            args=[
-                ast.Name(id=arg.arg, ctx=ast.Load()) if arg.arg in state_var_names
-                else ast.Constant(value=1)
-                for arg in node.args.args
-            ],
+            args=args,
             keywords=[]
         )
     )
